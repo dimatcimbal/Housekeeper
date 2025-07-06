@@ -29,7 +29,7 @@ param(
 # Configuration
 $BuildDir = "build"
 $ProjectName = "DXMiniApp"
-$ClangFormatPath = "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\Llvm\x64\bin\clang-format.exe"
+$ClangFormatPath = (Get-Command clang-format -EA SilentlyContinue).Source
 $SourceExtensions = @("*.cpp", "*.c", "*.h", "*.hpp", "*.cc", "*.cxx", "*.hxx")
 
 # Output helpers
@@ -79,13 +79,17 @@ if ($Help) {
 # ---
 $BuildDir = "build"
 $ProjectName = "DXMiniApp"
+
 # Try to find clang-format automatically or fall back to a common path
 $ClangFormatPath = (Get-Command clang-format -EA SilentlyContinue).Source
 if (-not $ClangFormatPath) {
-    # Fallback to common VS 2022 path if not found in PATH
-    $ClangFormatPath = "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\Llvm\x64\bin\clang-format.exe"
+    Error "clang-format location not found."
 }
 $SourceExtensions = @("*.cpp", "*.c", "*.h", "*.hpp", "*.cc", "*.cxx", "*.hxx")
+
+$VcpkgCmd = Get-Command vcpkg.exe -EA SilentlyContinue
+$VcpkgRoot = if ($VcpkgCmd) { Split-Path -Path $VcpkgCmd.Source -Parent } else { "" }
+$VcpkgToolchainFile = if ($VcpkgCmd) { Join-Path -Path $VcpkgRoot -ChildPath "scripts\buildsystems\vcpkg.cmake" } else { "" }
 
 # ---
 # Core Functions
@@ -169,6 +173,13 @@ function Invoke-Generate {
     try {
         $gen = Get-Generator
         $args = @("..")
+
+        # Conditionally add VCPKG toolchain file if it exists
+        if ($VcpkgToolchainFile -and (Test-Path $VcpkgToolchainFile)) {
+            $args += "-DCMAKE_TOOLCHAIN_FILE=$VcpkgToolchainFile"
+            Log "Using VCPKG toolchain: $VcpkgToolchainFile" "White"
+        }
+
         if ($gen) { $args += @("-G", $gen) }
 
         $output = & cmake $args 2>&1
