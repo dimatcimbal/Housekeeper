@@ -36,9 +36,9 @@ $SourceExtensions = @("*.cpp", "*.c", "*.h", "*.hpp", "*.cc", "*.cxx", "*.hxx")
 # Vcpkg Configuration
 $vcpkgCommand = Get-Command vcpkg.exe -EA SilentlyContinue
 $VcpkgExe = $vcpkgCommand.Source
-$vcpkgRoot = Split-Path (Split-Path $VcpkgExe) -Parent # vcpkg.exe is usually in VCPKG_ROOT/vcpkg.exe
-$VcpkgToolchainFile = Join-Path $vcpkgRoot "scripts\buildsystems\vcpkg.cmake"
-$VcpkgManifestFile = Join-Path -Path $PWD -ChildPath "vcpkg.json" # Path to vcpkg.json
+$vcpkgRoot = Split-Path "$VcpkgExe" -Parent
+$VcpkgToolchainFile = Join-Path "$vcpkgRoot" "scripts\buildsystems\vcpkg.cmake"
+$VcpkgManifestFile = Join-Path -Path "$PWD" -ChildPath "vcpkg.json" # Path to vcpkg.json
 
 if (-not ("$VcpkgToolchainFile")) {
     Error "Vcpkg toolchain file not found. Ensure vcpkg is installed and configured."
@@ -147,7 +147,7 @@ function Invoke-Clean {
 function Invoke-GetDependencies {
     Log "Installing Vcpkg dependencies..." "Cyan"
 
-    if (-not (Test-Path $VcpkgManifestFile)) {
+    if (-not (Test-Path "$VcpkgManifestFile")) {
         Error "vcpkg.json not found at '$VcpkgManifestFile'. Cannot install dependencies."
         return $false
     }
@@ -210,7 +210,7 @@ function Invoke-Generate {
         $args = @("..")
         if ($gen) { $args += @("-G", $gen) }
         # Add Vcpkg toolchain file to CMake arguments
-        $args += @("-DCMAKE_TOOLCHAIN_FILE=$VcpkgToolchainFile")
+        $args += @("-DCMAKE_TOOLCHAIN_FILE=`"$VcpkgToolchainFile`"")
 
         $output = & cmake $args 2>&1
         if ($LASTEXITCODE -ne 0) {
