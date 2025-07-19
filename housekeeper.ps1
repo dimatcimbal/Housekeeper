@@ -22,6 +22,7 @@ param(
     [switch]$Format,
     [switch]$CheckFormat,
     [switch]$All,
+    [switch]$Deps,
     [string]$Generator = "",
     [ValidateSet("Debug", "Release")][string]$Config = "Release"
 )
@@ -29,8 +30,20 @@ param(
 # Configuration
 $BuildDir = "build"
 $ProjectName = "DXMiniApp"
-$ClangFormatPath = (Get-Command clang-format -EA SilentlyContinue).Source
+$ClangFormatPath = "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\Llvm\x64\bin\clang-format.exe"
 $SourceExtensions = @("*.cpp", "*.c", "*.h", "*.hpp", "*.cc", "*.cxx", "*.hxx")
+
+# Vcpkg Configuration
+$vcpkgCommand = Get-Command vcpkg.exe -EA SilentlyContinue
+$VcpkgExe = $vcpkgCommand.Source
+$vcpkgRoot = Split-Path (Split-Path $VcpkgExe) -Parent # vcpkg.exe is usually in VCPKG_ROOT/vcpkg.exe
+$VcpkgToolchainFile = Join-Path $vcpkgRoot "scripts\buildsystems\vcpkg.cmake"
+$VcpkgManifestFile = Join-Path -Path $PWD -ChildPath "vcpkg.json" # Path to vcpkg.json
+
+if (-not ("$VcpkgToolchainFile")) {
+    Error "Vcpkg toolchain file not found. Ensure vcpkg is installed and configured."
+    return $false
+}
 
 # Output helpers
 function Log($msg, $color = "White") { Write-Host "🌿 $msg" -ForegroundColor $color }
@@ -79,17 +92,13 @@ if ($Help) {
 # ---
 $BuildDir = "build"
 $ProjectName = "DXMiniApp"
-
 # Try to find clang-format automatically or fall back to a common path
 $ClangFormatPath = (Get-Command clang-format -EA SilentlyContinue).Source
 if (-not $ClangFormatPath) {
-    Error "clang-format location not found."
+    # Fallback to common VS 2022 path if not found in PATH
+    $ClangFormatPath = "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\Llvm\x64\bin\clang-format.exe"
 }
 $SourceExtensions = @("*.cpp", "*.c", "*.h", "*.hpp", "*.cc", "*.cxx", "*.hxx")
-
-$VcpkgCmd = Get-Command vcpkg.exe -EA SilentlyContinue
-$VcpkgRoot = if ($VcpkgCmd) { Split-Path -Path $VcpkgCmd.Source -Parent } else { "" }
-$VcpkgToolchainFile = if ($VcpkgCmd) { Join-Path -Path $VcpkgRoot -ChildPath "scripts\buildsystems\vcpkg.cmake" } else { "" }
 
 # ---
 # Core Functions
@@ -135,6 +144,32 @@ function Invoke-Clean {
     return $true
 }
 
+function Invoke-GetDependencies {
+    Log "Installing Vcpkg dependencies..." "Cyan"
+
+    if (-not (Test-Path $VcpkgManifestFile)) {
+        Error "vcpkg.json not found at '$VcpkgManifestFile'. Cannot install dependencies."
+        return $false
+    }
+
+    try {
+        Push-Location $PSScriptRoot # Ensure we are in the project root where vcpkg.json resides
+        Log "Running 'vcpkg install' from vcpkg.json..."
+        # Use --recurse to ensure all dependencies are installed
+        # Use --triplet for Windows (x64-windows is common default)
+        & $VcpkgExe install --recurse --triplet x64-windows > $null 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Failed to install dependencies from vcpkg.json." }
+        Pop-Location
+        Success "Vcpkg dependencies installed successfully."
+        return $true
+    }
+    catch {
+        Error "Failed to install Vcpkg dependencies: $_"
+        Pop-Location -ErrorAction SilentlyContinue # Ensure we pop if an error occurred
+        return $false
+    }
+}
+
 function Get-Generator {
     if ($Generator) { return $Generator }
 
@@ -173,14 +208,9 @@ function Invoke-Generate {
     try {
         $gen = Get-Generator
         $args = @("..")
-
-        # Conditionally add VCPKG toolchain file if it exists
-        if ($VcpkgToolchainFile -and (Test-Path $VcpkgToolchainFile)) {
-            $args += "-DCMAKE_TOOLCHAIN_FILE=$VcpkgToolchainFile"
-            Log "Using VCPKG toolchain: $VcpkgToolchainFile" "White"
-        }
-
         if ($gen) { $args += @("-G", $gen) }
+        # Add Vcpkg toolchain file to CMake arguments
+        $args += @("-DCMAKE_TOOLCHAIN_FILE=$VcpkgToolchainFile")
 
         $output = & cmake $args 2>&1
         if ($LASTEXITCODE -ne 0) {
@@ -201,7 +231,11 @@ function Invoke-Build {
 
     if (-not (Test-Path "$BuildDir/CMakeCache.txt")) {
         Warn "Project files not found, attempting to generate..."
-        if (-not (Invoke-Generate)) { return $false }
+
+        if (-not (Invoke-Generate)) {
+            Error "Failed to generate project files. Cannot build."
+            return $false
+        }
     }
 
     Push-Location $BuildDir
@@ -302,8 +336,8 @@ function Get-Action {
         $Clear = $false # Reset Clear to avoid double counting
     }
 
-    $actions = @($Clean, $Build, $Rebuild, $Generate, $Format, $CheckFormat, $All)
-    $actionNames = @("clean", "build", "rebuild", "generate", "format", "check-format", "all")
+    $actions = @($Clean, $Build, $Rebuild, $Generate, $Format, $CheckFormat, $Deps, $All)
+    $actionNames = @("clean", "build", "rebuild", "generate", "format", "check-format", "deps", "all")
 
     # Filter out empty or false actions to count only truly active ones
     $activeFlags = $actions | Where-Object { $_ -eq $true }
@@ -339,6 +373,7 @@ switch ($action) {
     "build" { $success = Invoke-Build }
     "rebuild" { $success = (Invoke-Clean) -and (Invoke-Build) }
     "generate" { $success = Invoke-Generate }
+    "deps" { $success = Invoke-GetDependencies }
     "all" { $success = (Invoke-Format) -and (Invoke-Generate) -and (Invoke-Build) }
     default { Error "Unknown action: $action"; Show-Help; exit 1 }
 }
