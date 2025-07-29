@@ -27,30 +27,6 @@ param(
     [ValidateSet("Debug", "Release")][string]$Config = "Release"
 )
 
-# Configuration
-$BuildDir = "build"
-$ProjectName = "DXMiniApp"
-$SourceExtensions = @("*.cpp", "*.c", "*.h", "*.hpp", "*.cc", "*.cxx", "*.hxx")
-
-# Clang Format Configuration
-$ClangFormatPath = (Get-Command clang-format -EA SilentlyContinue).Source
-if (-not ("$ClangFormatPath")) {
-    Error "clang-format not found. Ensure clang-format is installed and configured."
-    return $false
-}
-
-# Vcpkg Configuration
-$vcpkgCommand = Get-Command vcpkg.exe -EA SilentlyContinue
-$VcpkgExe = $vcpkgCommand.Source
-$vcpkgRoot = Split-Path "$VcpkgExe" -Parent
-$VcpkgToolchainFile = Join-Path "$vcpkgRoot" "scripts\buildsystems\vcpkg.cmake"
-$VcpkgManifestFile = Join-Path -Path "$PWD" -ChildPath "vcpkg.json" # Path to vcpkg.json
-
-if (-not ("$VcpkgToolchainFile")) {
-    Error "Vcpkg toolchain file not found. Ensure vcpkg is installed and configured."
-    return $false
-}
-
 # Output helpers
 function Log($msg, $color = "White") { Write-Host "🌿 $msg" -ForegroundColor $color }
 function Success($msg) { Write-Host "✅ $msg" -ForegroundColor Green }
@@ -84,6 +60,38 @@ EXAMPLES:
     .\housekeeper.ps1 -All
 "@ -ForegroundColor Cyan
 }
+
+# Configuration
+$BuildDir = "build"
+$ProjectName = "DXMiniApp"
+$SourceExtensions = @("*.cpp", "*.c", "*.h", "*.hpp", "*.cc", "*.cxx", "*.hxx")
+
+# Clang Format Configuration
+$ClangFormatPath = (Get-Command clang-format -EA SilentlyContinue).Source
+if (-not ("$ClangFormatPath")) {
+    Error "clang-format not found. Ensure clang-format is installed and configured."
+    return $false
+}
+
+# Vcpkg Configuration
+$vcpkgCommand = Get-Command vcpkg.exe -EA SilentlyContinue
+$VcpkgExe = $vcpkgCommand.Source
+$vcpkgRoot = Split-Path "$VcpkgExe" -Parent
+$VcpkgToolchainFile = Join-Path "$vcpkgRoot" "scripts\buildsystems\vcpkg.cmake"
+$VcpkgManifestFile = Join-Path -Path "$PWD" -ChildPath "vcpkg.json" # Path to vcpkg.json
+
+if (-not ("$VcpkgToolchainFile")) {
+    Error "Vcpkg toolchain file not found. Ensure vcpkg is installed and configured."
+    return $false
+}
+
+Log "--- Housekeeper Configuration Check ---"
+Log "Build Directory: $BuildDir"
+Log "ClangFormat Path: $ClangFormatPath"
+Log "VCPKG_ROOT: $VcpkgRoot"
+Log "CMAKE_TOOLCHAIN_FILE: $VcpkgToolchainFile"
+Log "VcpkgExe: $VcpkgExe"
+Log "----------------------------------"
 
 # ---
 # Early Help Exit
