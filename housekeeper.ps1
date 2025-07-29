@@ -94,19 +94,6 @@ if ($Help) {
 }
 
 # ---
-# Configuration
-# ---
-$BuildDir = "build"
-$ProjectName = "DXMiniApp"
-# Try to find clang-format automatically or fall back to a common path
-$ClangFormatPath = (Get-Command clang-format -EA SilentlyContinue).Source
-if (-not $ClangFormatPath) {
-    # Fallback to common VS 2022 path if not found in PATH
-    $ClangFormatPath = "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\Llvm\x64\bin\clang-format.exe"
-}
-$SourceExtensions = @("*.cpp", "*.c", "*.h", "*.hpp", "*.cc", "*.cxx", "*.hxx")
-
-# ---
 # Core Functions
 # ---
 function Test-Prerequisites {
