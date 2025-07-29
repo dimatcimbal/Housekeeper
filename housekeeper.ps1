@@ -30,8 +30,14 @@ param(
 # Configuration
 $BuildDir = "build"
 $ProjectName = "DXMiniApp"
-$ClangFormatPath = "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\Llvm\x64\bin\clang-format.exe"
 $SourceExtensions = @("*.cpp", "*.c", "*.h", "*.hpp", "*.cc", "*.cxx", "*.hxx")
+
+# Clang Format Configuration
+$ClangFormatPath = (Get-Command clang-format -EA SilentlyContinue).Source
+if (-not ("$ClangFormatPath")) {
+    Error "clang-format not found. Ensure clang-format is installed and configured."
+    return $false
+}
 
 # Vcpkg Configuration
 $vcpkgCommand = Get-Command vcpkg.exe -EA SilentlyContinue
