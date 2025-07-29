@@ -74,9 +74,7 @@ if (-not ("$ClangFormatPath")) {
 }
 
 # Vcpkg Configuration
-$vcpkgCommand = Get-Command vcpkg.exe -EA SilentlyContinue
-$VcpkgExe = $vcpkgCommand.Source
-$vcpkgRoot = Split-Path "$VcpkgExe" -Parent
+$vcpkgRoot = $env:VCPKG_ROOT
 $VcpkgToolchainFile = Join-Path "$vcpkgRoot" "scripts\buildsystems\vcpkg.cmake"
 $VcpkgManifestFile = Join-Path -Path "$PWD" -ChildPath "vcpkg.json" # Path to vcpkg.json
 
