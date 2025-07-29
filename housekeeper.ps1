@@ -77,6 +77,7 @@ if (-not ("$ClangFormatPath")) {
 $vcpkgRoot = $env:VCPKG_ROOT
 $VcpkgToolchainFile = Join-Path "$vcpkgRoot" "scripts\buildsystems\vcpkg.cmake"
 $VcpkgManifestFile = Join-Path -Path "$PWD" -ChildPath "vcpkg.json" # Path to vcpkg.json
+$VcpkgExe = Join-Path -Path $VcpkgRoot -ChildPath "vcpkg.exe"
 
 if (-not ("$VcpkgToolchainFile")) {
     Error "Vcpkg toolchain file not found. Ensure vcpkg is installed and configured."
@@ -86,8 +87,9 @@ if (-not ("$VcpkgToolchainFile")) {
 Log "--- Housekeeper Configuration Check ---"
 Log "Build Directory: $BuildDir"
 Log "ClangFormat Path: $ClangFormatPath"
-Log "VCPKG_ROOT: $VcpkgRoot"
 Log "CMAKE_TOOLCHAIN_FILE: $VcpkgToolchainFile"
+Log "VCPKG_ROOT: $VcpkgRoot"
+Log "Vcpkg Executable: $VcpkgExe"
 Log "----------------------------------"
 
 # ---
