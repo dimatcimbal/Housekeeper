@@ -88,7 +88,6 @@ Log "Build Directory: $BuildDir"
 Log "ClangFormat Path: $ClangFormatPath"
 Log "VCPKG_ROOT: $VcpkgRoot"
 Log "CMAKE_TOOLCHAIN_FILE: $VcpkgToolchainFile"
-Log "VcpkgExe: $VcpkgExe"
 Log "----------------------------------"
 
 # ---
