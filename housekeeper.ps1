@@ -172,7 +172,7 @@ function Invoke-GetDependencies {
         return $true
     }
     catch {
-        # This catch block will only execute if the `throw` statement is reached
+        # This catch block will execute for any exception thrown within the try block
         Error "Failed to install Vcpkg dependencies: $_"
         Pop-Location -ErrorAction SilentlyContinue # Ensure we pop if an error occurred
         return $false
