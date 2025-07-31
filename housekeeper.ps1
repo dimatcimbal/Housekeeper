@@ -154,10 +154,10 @@ function Invoke-GetDependencies {
 
     try {
         Push-Location $PSScriptRoot # Ensure we are in the project root where vcpkg.json resides
-        Log "Running 'vcpkg install' from vcpkg.json..."
+        Log "Running 'vcpkg install' from vcpkg.json with debug output..."
         # Use --recurse to ensure all dependencies are installed
         # Use --triplet for Windows (x64-windows is common default)
-        & $VcpkgExe install --recurse --triplet x64-windows > $null 2>&1
+        & $VcpkgExe install --recurse --triplet x64-windows --debug
         if ($LASTEXITCODE -ne 0) { throw "Failed to install dependencies from vcpkg.json." }
         Pop-Location
         Success "Vcpkg dependencies installed successfully."
