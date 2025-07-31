@@ -155,15 +155,24 @@ function Invoke-GetDependencies {
     try {
         Push-Location $PSScriptRoot # Ensure we are in the project root where vcpkg.json resides
         Log "Running 'vcpkg install' from vcpkg.json with debug output..."
-        # Use --recurse to ensure all dependencies are installed
-        # Use --triplet for Windows (x64-windows is common default)
-        & $VcpkgExe install --recurse --triplet x64-windows --debug
-        if ($LASTEXITCODE -ne 0) { throw "Failed to install dependencies from vcpkg.json." }
+
+        # Capture all output from the vcpkg command to a variable
+        $vcpkgOutput = & $VcpkgExe install --recurse --triplet x64-windows --debug 2>&1
+
+        # Print all captured output, which includes debug messages and errors
+        $vcpkgOutput | ForEach-Object { Write-Host "  [VCPKG] $_" }
+
+        if ($LASTEXITCODE -ne 0) {
+            # The command failed, so throw an error to trigger the catch block
+            throw "Failed to install dependencies from vcpkg.json. Check the [VCPKG] output above for details."
+        }
+
         Pop-Location
         Success "Vcpkg dependencies installed successfully."
         return $true
     }
     catch {
+        # This catch block will only execute if the `throw` statement is reached
         Error "Failed to install Vcpkg dependencies: $_"
         Pop-Location -ErrorAction SilentlyContinue # Ensure we pop if an error occurred
         return $false
