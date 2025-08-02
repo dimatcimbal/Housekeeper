@@ -185,8 +185,10 @@ function Get-Generator {
     Log "Auto-detecting CMake generator..." "Cyan"
 
     # Prioritize Ninja if available
-    if (Get-Command "ninja" -EA SilentlyContinue) {
-        Log "Detected 'ninja'. Using 'Ninja' generator." "Green"
+    $ninjaPath = (Get-Command "ninja" -EA SilentlyContinue).Path
+    if ($ninjaPath) {
+        $ninjaVersion = (& $ninjaPath --version | Out-String).Trim()
+        Log "Detected 'ninja' (v$ninjaVersion) at $ninjaPath. Using 'Ninja' generator." "Green"
         return "Ninja"
     }
 
