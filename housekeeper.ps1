@@ -231,7 +231,7 @@ function Invoke-Generate {
         $args = @("..")
         if ($gen) { $args += @("-G", $gen) }
         # Add Vcpkg toolchain file to CMake arguments
-        $args += @("-DCMAKE_TOOLCHAIN_FILE=`"$VcpkgToolchainFile`"")
+        $args += "-DCMAKE_TOOLCHAIN_FILE=$($VcpkgToolchainFile)"
 
         if ($Debug) {
             $args += @("--trace-expand", "--debug-output", "--warn-uninitialized")
