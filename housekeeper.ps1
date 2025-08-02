@@ -23,6 +23,7 @@ param(
     [switch]$CheckFormat,
     [switch]$All,
     [switch]$Deps,
+    [switch]$Debug,
     [string]$Generator = "",
     [ValidateSet("Debug", "Release")][string]$Config = "Release"
 )
@@ -52,6 +53,7 @@ ACTIONS:
 OPTIONS:
     -Generator    CMake generator ("Visual Studio 17 2022", "Ninja", etc.)
     -Config       Debug or Release (default: Release)
+    -Debug        Enable verbose debug output
 
 EXAMPLES:
     .\housekeeper.ps1                    # Clean and build
@@ -84,13 +86,15 @@ if (-not ("$VcpkgToolchainFile")) {
     return $false
 }
 
-Log "--- Housekeeper Configuration Check ---"
-Log "Build Directory: $BuildDir"
-Log "ClangFormat Path: $ClangFormatPath"
-Log "CMAKE_TOOLCHAIN_FILE: $VcpkgToolchainFile"
-Log "VCPKG_ROOT: $VcpkgRoot"
-Log "Vcpkg Executable: $VcpkgExe"
-Log "----------------------------------"
+if ($Debug) {
+    Log "--- Housekeeper Configuration Check ---"
+    Log "Build Directory: $BuildDir"
+    Log "ClangFormat Path: $ClangFormatPath"
+    Log "CMAKE_TOOLCHAIN_FILE: $VcpkgToolchainFile"
+    Log "VCPKG_ROOT: $VcpkgRoot"
+    Log "Vcpkg Executable: $VcpkgExe"
+    Log "----------------------------------"
+}
 
 # ---
 # Early Help Exit
@@ -152,30 +156,36 @@ function Invoke-GetDependencies {
         return $false
     }
 
+    Push-Location $PSScriptRoot
+    Log "Running 'vcpkg install' from vcpkg.json..."
     try {
-        Push-Location $PSScriptRoot # Ensure we are in the project root where vcpkg.json resides
-        Log "Running 'vcpkg install' from vcpkg.json with debug output..."
+        $vcpkgArgs = @("install", "--recurse", "--triplet", "x64-windows")
 
-        # Capture all output from the vcpkg command to a variable
-        $vcpkgOutput = & $VcpkgExe install --recurse --triplet x64-windows --debug 2>&1
-
-        # Print all captured output, which includes debug messages and errors
-        $vcpkgOutput | ForEach-Object { Write-Host "  [VCPKG] $_" }
-
-        if ($LASTEXITCODE -ne 0) {
-            # The command failed, so throw an error to trigger the catch block
-            throw "Failed to install dependencies from vcpkg.json. Check the [VCPKG] output above for details."
+        if ($Debug) {
+            $vcpkgArgs += "--debug"
         }
 
-        Pop-Location
+       $vcpkgOutput = & $VcpkgExe $vcpkgArgs 2>&1
+
+        if ($LASTEXITCODE -ne 0) {
+            Error "Vcpkg command failed with exit code $LASTEXITCODE."
+            $vcpkgOutput | ForEach-Object {
+                Error "  [VCPKG] $_"
+            }
+            return $false
+        }
+
+        if ($Debug) {
+            $vcpkgOutput | ForEach-Object {
+                Log "  [VCPKG] $_" "Green"
+            }
+        }
+
         Success "Vcpkg dependencies installed successfully."
         return $true
     }
-    catch {
-        # This catch block will execute for any exception thrown within the try block
-        Error "Failed to install Vcpkg dependencies: $_"
-        Pop-Location -ErrorAction SilentlyContinue # Ensure we pop if an error occurred
-        return $false
+    finally {
+        Pop-Location
     }
 }
 
@@ -223,18 +233,28 @@ function Invoke-Generate {
         # Add Vcpkg toolchain file to CMake arguments
         $args += @("-DCMAKE_TOOLCHAIN_FILE=`"$VcpkgToolchainFile`"")
 
+        if ($Debug) {
+            $args += @("--trace-expand", "--debug-output", "--warn-uninitialized")
+        }
+
         $output = & cmake $args 2>&1
+
         if ($LASTEXITCODE -ne 0) {
-            Error "CMake configuration failed:"
-            $output | ForEach-Object { Write-Host "  [CMAKE] $_" -ForegroundColor Red }
-            throw "Configuration failed"
+            Error "Generation failed: $_";
+            $output | ForEach-Object { Error "  [CMAKE] $_" }
+            return $false
+        }
+
+        if ($Debug) {
+            $output | ForEach-Object { Log "  [CMAKE] $_" "Green" }
         }
 
         Success "Project files generated"
         return $true
     }
-    catch { Error "Generation failed: $_"; return $false }
-    finally { Pop-Location }
+    finally {
+        Pop-Location
+    }
 }
 
 function Invoke-Build {
@@ -252,10 +272,20 @@ function Invoke-Build {
     Push-Location $BuildDir
     try {
         $output = & cmake --build . --config $Config 2>&1
+
+        # Error case
         if ($LASTEXITCODE -ne 0) {
             Error "Build failed:"
-            $output | ForEach-Object { Write-Host "  [CMAKE] $_" -ForegroundColor Red }
-            throw "Build failed"
+            $output | ForEach-Object {
+                Error "  [CMAKE] $_"
+            }
+            return $false
+        }
+
+        if ($Debug) {
+            $output | ForEach-Object {
+                Log "  [CMAKE] $_" "Green"
+            }
         }
 
         Success "Build completed"
@@ -265,8 +295,9 @@ function Invoke-Build {
         if ($exePath) { Log "Executable: $exePath" "Green" }
         return $true
     }
-    catch { Error "Build failed: $_"; return $false }
-    finally { Pop-Location }
+    finally {
+        Pop-Location
+    }
 }
 
 function Invoke-Format {
@@ -331,7 +362,7 @@ function Invoke-CheckFormat {
         return $true
     } else {
         Error "The following files are incorrectly formatted:"
-        $badFiles | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
+        $badFiles | ForEach-Object { Error "  - $_" }
         Warn "To fix, run: .\housekeeper.ps1 -Format"
         return $false
     }
