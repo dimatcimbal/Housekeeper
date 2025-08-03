@@ -399,7 +399,7 @@ function Get-Action {
 # ---
 # Main Execution
 # ---
-Log "🌿 housekeeper - Win32 Project Build Script" "Cyan"
+Log "housekeeper - Win32 Project Build Script" "Cyan"
 
 $action = Get-Action
 Log "Action: $action | Config: $Config"
