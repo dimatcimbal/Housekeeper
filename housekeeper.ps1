@@ -213,7 +213,7 @@ function Get-Generator {
     }
 
     # Fallback if no specific preference or detection
-    Warn "No preferred generator (Ninja, VS 2022) auto-detected. CMake will choose default."
+    Warn "No preferred generator (VS 2022, Ninja) auto-detected. CMake will choose default."
     return ""
 }
 
