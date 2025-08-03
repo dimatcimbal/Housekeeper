@@ -194,14 +194,6 @@ function Get-Generator {
 
     Log "Auto-detecting CMake generator..." "Cyan"
 
-    # Prioritize Ninja if available
-    $ninjaPath = (Get-Command "ninja" -EA SilentlyContinue).Path
-    if ($ninjaPath) {
-        $ninjaVersion = (& $ninjaPath --version | Out-String).Trim()
-        Log "Detected 'ninja' (v$ninjaVersion) at $ninjaPath. Using 'Ninja' generator." "Green"
-        return "Ninja"
-    }
-
     # Prioritize Visual Studio 2022 if vswhere is found
     $vsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
     if (Test-Path $vsWhere) {
@@ -212,8 +204,16 @@ function Get-Generator {
         }
     }
 
+    # Prioritize Ninja if available
+    $ninjaPath = (Get-Command "ninja" -EA SilentlyContinue).Path
+    if ($ninjaPath) {
+        $ninjaVersion = (& $ninjaPath --version | Out-String).Trim()
+        Log "Detected 'ninja' (v$ninjaVersion) at $ninjaPath. Using 'Ninja' generator." "Green"
+        return "Ninja"
+    }
+
     # Fallback if no specific preference or detection
-    Warn "No preferred generator (Ninja, VS 2022) auto-detected. CMake will choose default."
+    Warn "No preferred generator (VS 2022, Ninja) auto-detected. CMake will choose default."
     return ""
 }
 
