@@ -63,7 +63,7 @@ EXAMPLES:
 "@ -ForegroundColor Cyan
 }
 
-# Configuration
+# Global Configuration
 $BuildDir = "build"
 $ProjectName = "DXMiniApp"
 $SourceExtensions = @("*.cpp", "*.c", "*.h", "*.hpp", "*.cc", "*.cxx", "*.hxx")
@@ -85,12 +85,29 @@ if (-not ("$VcpkgToolchainFile")) {
     return $false
 }
 
-# CL Configuration
-$clPath = (Get-Command "cl.exe" -EA SilentlyContinue).Path
-if (-not ("$clPath")) {
-    Error "cl.exe not found. Ensure Visual Studio with C++ tools is installed and configured."
+# Visual Studio Environment Setup
+Log "Finding Visual Studio vcvarsall.bat..." "Cyan"
+$vsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+if (-not (Test-Path $vsWhere)) {
+    Error "vswhere.exe not found. Is Visual Studio installed?"
     return $false
 }
+    
+$vsPath = & $vsWhere -latest -products Microsoft.VisualStudio.Product.Community -version "[17.0,)" -property installationPath
+if (-not $vsPath) {
+    $vsPath = & $vsWhere -latest -products Microsoft.VisualStudio.Product.Professional -version "[17.0,)" -property installationPath
+    if (-not $vsPath) {
+        $vsPath = & $vsWhere -latest -products Microsoft.VisualStudio.Product.Enterprise -version "[17.0,)" -property installationPath
+    }
+}
+    
+if (-not $vsPath) {
+    Error "Could not find a valid Visual Studio 2022+ installation."
+    return $false
+}
+    
+Log "Found Visual Studio at: $vsPath" "Green"
+$vcvarsPath = Join-Path -Path "$vsPath" -ChildPath "VC\Auxiliary\Build\vcvarsall.bat"
 
 
 if ($Debug) {
@@ -115,6 +132,48 @@ if ($Help) {
 # ---
 # Core Functions
 # ---
+function Invoke-VsVars {
+    param(
+        [string]$vcvarsPath,
+        [string]$arch = "x64"
+    )
+
+    if (-not (Test-Path $vcvarsPath)) {
+        Error "vcvarsall.bat not found at '$vcvarsPath'."
+        return $false
+    }
+    
+    Log "Setting up Visual Studio environment from '$vcvarsPath' for '$arch'..." "Cyan"
+
+    # Run vcvarsall.bat and dump the environment variables
+    $vsEnvOutput = & cmd.exe /c "`"$vcvarsPath`" $arch >NUL && set" 2>&1
+
+    # Loop through the output and set the environment variables in the current session
+    foreach ($line in $vsEnvOutput) {
+        if ($line -match "^(.+?)=(.*)$") {
+            $name = $matches[1]
+            $value = $matches[2]
+            
+            # Special handling for PATH to append instead of replace
+            if ($name -eq 'PATH') {
+                $env:PATH = $value + ';' + $env:PATH
+            } else {
+                Set-Item -Path "env:$name" -Value $value -Force
+            }
+        }
+    }
+    
+    # Check if a critical variable like PATH or INCLUDE has been set
+    if ($env:PATH -notlike "*VC\Tools*") {
+        Error "Failed to set Visual Studio environment variables."
+        return $false
+    }
+
+    Success "Visual Studio environment configured successfully."
+    return $true
+}
+
+
 function Test-Prerequisites {
     if (-not (Test-Path "CMakeLists.txt")) { Error "CMakeLists.txt not found in current directory."; return $false }
     if (-not (Test-Path "src")) { Error "src/ directory not found."; return $false }
@@ -225,44 +284,62 @@ function Get-Generator {
     return ""
 }
 
-function Invoke-Generate {
-    Log "Generating project files..." "Cyan"
-
+# The optimized core function to handle both CMake generation and building
+function Invoke-CMake {
+    param(
+        [switch]$GenerateOnly = $false,
+        [switch]$BuildOnly = $false
+    )
+    
+    # Create build directory if it doesn't exist
     if (-not (Test-Path $BuildDir)) {
         New-Item -ItemType Directory -Path $BuildDir | Out-Null
         Log "Created build directory: .$BuildDir"
     }
 
+    $gen = Get-Generator
+    
+    $cmakeGenerateArgs = @("..")
+    if ($gen) { $cmakeGenerateArgs += @("-G", $gen) }
+    $cmakeGenerateArgs += "-DCMAKE_TOOLCHAIN_FILE=$($VcpkgToolchainFile)"
+
+    if ($Debug) {
+        $cmakeGenerateArgs += @("--trace-expand", "--debug-output", "--warn-uninitialized")
+    }
+
+    $cmakeBuildArgs = @("--build", ".", "--config", $Config)
+
     Push-Location $BuildDir
     try {
-        $gen = Get-Generator
-        $args = @("..")
-        if ($gen) { $args += @("-G", $gen) }
-
-        # Add CL compiler paths to CMake arguments
-        $args += "-DCMAKE_C_COMPILER=$clPath"
-        $args += "-DCMAKE_CXX_COMPILER=$clPath"
+        # --- CMake Generation Step ---
+        if (-not $BuildOnly) {
+            if (-not (Test-Path "CMakeCache.txt")) {
+                Log "Running CMake generation..." "Cyan"
+                $buildOutput = & cmake $cmakeGenerateArgs 2>&1
+                if ($LASTEXITCODE -ne 0) {
+                    Error "CMake generation failed."
+                    $buildOutput | ForEach-Object { Error "  [BUILD] $_" }
+                    return $false
+                }
+                Success "Project files generated"
+            } else {
+                Log "CMake cache found, skipping generation." "Green"
+            }
+        }
         
-        # Add Vcpkg toolchain file to CMake arguments
-        $args += "-DCMAKE_TOOLCHAIN_FILE=$($VcpkgToolchainFile)"
-
-        if ($Debug) {
-            $args += @("--trace-expand", "--debug-output", "--warn-uninitialized")
+        # --- CMake Build Step ---
+        if (-not $GenerateOnly) {
+            Log "Running CMake build..." "Cyan"
+            $buildOutput = & cmake $cmakeBuildArgs 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                Error "Build failed."
+                $buildOutput | ForEach-Object { Error "  [BUILD] $_" }
+                return $false
+            }
+            Success "Build completed"
+            $exePath = Get-ChildItem -Path ".\bin", ".\$Config" -Filter "$ProjectName.exe" -Recurse -File | Select-Object -ExpandProperty FullName -First 1
+            if ($exePath) { Log "Executable: $exePath" "Green" }
         }
-
-        $output = & cmake $args 2>&1
-
-        if ($LASTEXITCODE -ne 0) {
-            Error "Generation failed: $_";
-            $output | ForEach-Object { Error "  [CMAKE] $_" }
-            return $false
-        }
-
-        if ($Debug) {
-            $output | ForEach-Object { Log "  [CMAKE] $_" "Green" }
-        }
-
-        Success "Project files generated"
         return $true
     }
     finally {
@@ -270,47 +347,14 @@ function Invoke-Generate {
     }
 }
 
+function Invoke-Generate {
+    Log "Generating project files..." "Cyan"
+    return Invoke-CMake -GenerateOnly
+}
+
 function Invoke-Build {
     Log "Building project ($Config)..." "Cyan"
-
-    if (-not (Test-Path "$BuildDir/CMakeCache.txt")) {
-        Warn "Project files not found, attempting to generate..."
-
-        if (-not (Invoke-Generate)) {
-            Error "Failed to generate project files. Cannot build."
-            return $false
-        }
-    }
-
-    Push-Location $BuildDir
-    try {
-        $output = & cmake --build . --config $Config 2>&1
-
-        # Error case
-        if ($LASTEXITCODE -ne 0) {
-            Error "Build failed:"
-            $output | ForEach-Object {
-                Error "  [CMAKE] $_"
-            }
-            return $false
-        }
-
-        if ($Debug) {
-            $output | ForEach-Object {
-                Log "  [CMAKE] $_" "Green"
-            }
-        }
-
-        Success "Build completed"
-
-        # Show executable location
-        $exePath = Get-ChildItem -Path ".\bin", ".\$Config" -Filter "$ProjectName.exe" -Recurse -File | Select-Object -ExpandProperty FullName -First 1
-        if ($exePath) { Log "Executable: $exePath" "Green" }
-        return $true
-    }
-    finally {
-        Pop-Location
-    }
+    return Invoke-CMake -BuildOnly
 }
 
 function Invoke-Format {
@@ -420,13 +464,20 @@ Log "Action: $action | Config: $Config"
 # Check prerequisites for all actions except 'help'
 if ($action -ne "help" -and -not (Test-Prerequisites)) { exit 1 }
 
+# Set up the Visual Studio environment once
+if ($action -ne "help") {
+    if (-not (Invoke-VsVars -vcvarsPath $vcvarsPath -arch "x64")) {
+        exit 1
+    }
+}
+
 $success = $false
 switch ($action) {
     "clean" { $success = Invoke-Clean }
     "format" { $success = Invoke-Format }
     "check-format" { $success = Invoke-CheckFormat }
-    "build" { $success = Invoke-Build }
-    "rebuild" { $success = (Invoke-Clean) -and (Invoke-Build) }
+    "build" { $success = (Invoke-Generate) -and (Invoke-Build) }
+    "rebuild" { $success = (Invoke-Clean) -and (Invoke-Generate) -and (Invoke-Build) }
     "generate" { $success = Invoke-Generate }
     "deps" { $success = Invoke-GetDependencies }
     "all" { $success = (Invoke-Format) -and (Invoke-Generate) -and (Invoke-Build) }
