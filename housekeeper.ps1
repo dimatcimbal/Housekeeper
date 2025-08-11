@@ -69,7 +69,7 @@ $ProjectName = "DXMiniApp"
 $SourceExtensions = @("*.cpp", "*.c", "*.h", "*.hpp", "*.cc", "*.cxx", "*.hxx")
 
 # Clang Format Configuration
-$ClangFormatPath = (Get-Command clang-format -EA SilentlyContinue).Source
+$ClangFormatPath = (Get-Command clang-format -EA SilentlyContinue).Path
 if (-not ("$ClangFormatPath")) {
     Error "clang-format not found. Ensure clang-format is installed and configured."
     return $false
@@ -80,16 +80,24 @@ $vcpkgRoot = $env:VCPKG_ROOT
 $VcpkgToolchainFile = Join-Path "$vcpkgRoot" "scripts\buildsystems\vcpkg.cmake"
 $VcpkgManifestFile = Join-Path -Path "$PWD" -ChildPath "vcpkg.json" # Path to vcpkg.json
 $VcpkgExe = Join-Path -Path $VcpkgRoot -ChildPath "vcpkg.exe"
-
 if (-not ("$VcpkgToolchainFile")) {
     Error "Vcpkg toolchain file not found. Ensure vcpkg is installed and configured."
     return $false
 }
 
+# CL Configuration
+$clPath = (Get-Command "cl.exe" -EA SilentlyContinue).Path
+if (-not ("$clPath")) {
+    Error "cl.exe not found. Ensure Visual Studio with C++ tools is installed and configured."
+    return $false
+}
+
+
 if ($Debug) {
     Log "--- Housekeeper Configuration Check ---"
     Log "Build Directory: $BuildDir"
     Log "ClangFormat Path: $ClangFormatPath"
+    Log "CL compiler Path: $clPath"
     Log "CMAKE_TOOLCHAIN_FILE: $VcpkgToolchainFile"
     Log "VCPKG_ROOT: $VcpkgRoot"
     Log "Vcpkg Executable: $VcpkgExe"
@@ -230,6 +238,11 @@ function Invoke-Generate {
         $gen = Get-Generator
         $args = @("..")
         if ($gen) { $args += @("-G", $gen) }
+
+        # Add CL compiler paths to CMake arguments
+        $args += "-DCMAKE_C_COMPILER=$clPath"
+        $args += "-DCMAKE_CXX_COMPILER=$clPath"
+        
         # Add Vcpkg toolchain file to CMake arguments
         $args += "-DCMAKE_TOOLCHAIN_FILE=$($VcpkgToolchainFile)"
 
