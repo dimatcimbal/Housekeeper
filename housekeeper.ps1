@@ -30,9 +30,13 @@ param(
 
 # Output helpers
 function Log($msg, $color = "White") { Write-Host "🌿 $msg" -ForegroundColor $color }
+function Info($msg) { Write-Host "🌿 $msg" -ForegroundColor Cyan }
+function Debug($msg) { Write-Host "🌿 $msg" -ForegroundColor Gray }
 function Success($msg) { Write-Host "✅ $msg" -ForegroundColor Green }
 function Error($msg) { Write-Host "❌ $msg" -ForegroundColor Red }
 function Warn($msg) { Write-Host "⚠️  $msg" -ForegroundColor Yellow }
+
+Info "housekeeper - Win32 Project Build Script"
 
 function Show-Help {
     Write-Host @"
@@ -80,13 +84,9 @@ $vcpkgRoot = $env:VCPKG_ROOT
 $VcpkgToolchainFile = Join-Path "$vcpkgRoot" "scripts\buildsystems\vcpkg.cmake"
 $VcpkgManifestFile = Join-Path -Path "$PWD" -ChildPath "vcpkg.json" # Path to vcpkg.json
 $VcpkgExe = Join-Path -Path $VcpkgRoot -ChildPath "vcpkg.exe"
-if (-not ("$VcpkgToolchainFile")) {
-    Error "Vcpkg toolchain file not found. Ensure vcpkg is installed and configured."
-    return $false
-}
 
 # Visual Studio Environment Setup
-Log "Finding Visual Studio vcvarsall.bat..." "Cyan"
+Info "Finding Visual Studio vcvarsall.bat..."
 $vsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 if (-not (Test-Path $vsWhere)) {
     Error "vswhere.exe not found. Is Visual Studio installed?"
@@ -105,20 +105,20 @@ if (-not $vsPath) {
     Error "Could not find a valid Visual Studio 2022+ installation."
     return $false
 }
-    
-Log "Found Visual Studio at: $vsPath" "Green"
+
+Debug "Found Visual Studio at: $vsPath"
 $vcvarsPath = Join-Path -Path "$vsPath" -ChildPath "VC\Auxiliary\Build\vcvarsall.bat"
 
+# We will move the CL path check into the Read-VsVars function, as requested.
+$clPath = "" 
 
 if ($Debug) {
-    Log "--- Housekeeper Configuration Check ---"
-    Log "Build Directory: $BuildDir"
-    Log "ClangFormat Path: $ClangFormatPath"
-    Log "CL compiler Path: $clPath"
-    Log "CMAKE_TOOLCHAIN_FILE: $VcpkgToolchainFile"
-    Log "VCPKG_ROOT: $VcpkgRoot"
-    Log "Vcpkg Executable: $VcpkgExe"
-    Log "----------------------------------"
+    Debug "--- Housekeeper Configuration Check ---"
+    Debug "Build Directory: $BuildDir"
+    Debug "ClangFormat Path: $ClangFormatPath"
+    Debug "VCPKG_ROOT: $VcpkgRoot"
+    Debug "Vcpkg Executable: $VcpkgExe"
+    Debug "----------------------------------"
 }
 
 # ---
@@ -132,7 +132,7 @@ if ($Help) {
 # ---
 # Core Functions
 # ---
-function Invoke-VsVars {
+function Read-VsVars {
     param(
         [string]$vcvarsPath,
         [string]$arch = "x64"
@@ -143,7 +143,7 @@ function Invoke-VsVars {
         return $false
     }
     
-    Log "Setting up Visual Studio environment from '$vcvarsPath' for '$arch'..." "Cyan"
+    Info "Setting up Visual Studio environment from '$vcvarsPath' for '$arch'..."
 
     # Run vcvarsall.bat and dump the environment variables
     $vsEnvOutput = & cmd.exe /c "`"$vcvarsPath`" $arch >NUL && set" 2>&1
@@ -154,9 +154,8 @@ function Invoke-VsVars {
             $name = $matches[1]
             $value = $matches[2]
             
-            # Special handling for PATH to append instead of replace
             if ($name -eq 'PATH') {
-                $env:PATH = $value + ';' + $env:PATH
+                $env:PATH = $env:PATH + ';' + $value
             } else {
                 Set-Item -Path "env:$name" -Value $value -Force
             }
@@ -164,28 +163,15 @@ function Invoke-VsVars {
     }
     
     # Check if a critical variable like PATH or INCLUDE has been set
-    if ($env:PATH -notlike "*VC\Tools*") {
+    if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
         Error "Failed to set Visual Studio environment variables."
         return $false
     }
 
+    # Set the global clPath variable
+    $script:clPath = (Get-Command "cl.exe" -EA SilentlyContinue).Path
+
     Success "Visual Studio environment configured successfully."
-    return $true
-}
-
-
-function Test-Prerequisites {
-    if (-not (Test-Path "CMakeLists.txt")) { Error "CMakeLists.txt not found in current directory."; return $false }
-    if (-not (Test-Path "src")) { Error "src/ directory not found."; return $false }
-    return $true
-}
-
-function Test-ClangFormat {
-    if (-not (Test-Path $ClangFormatPath)) {
-        Error "clang-format not found at: $ClangFormatPath"
-        Warn "Ensure Visual Studio with C++ tools is installed or clang-format is in your PATH."
-        return $false
-    }
     return $true
 }
 
@@ -201,8 +187,8 @@ function Get-SourceFiles {
     return $files
 }
 
-function Invoke-Clean {
-    Log "Cleaning project..." "Cyan"
+function Run-Clean {
+    Info "Cleaning project..."
     if (Test-Path $BuildDir) {
         try {
             Remove-Item -Recurse -Force $BuildDir -ErrorAction Stop
@@ -215,8 +201,8 @@ function Invoke-Clean {
     return $true
 }
 
-function Invoke-GetDependencies {
-    Log "Installing Vcpkg dependencies..." "Cyan"
+function Get-Dependencies {
+    Info "Installing Vcpkg dependencies..."
 
     if (-not (Test-Path "$VcpkgManifestFile")) {
         Error "vcpkg.json not found at '$VcpkgManifestFile'. Cannot install dependencies."
@@ -224,7 +210,7 @@ function Invoke-GetDependencies {
     }
 
     Push-Location $PSScriptRoot
-    Log "Running 'vcpkg install' from vcpkg.json..."
+    Info "Running 'vcpkg install' from vcpkg.json..."
     try {
         $vcpkgArgs = @("install", "--recurse", "--triplet", "x64-windows")
 
@@ -244,7 +230,7 @@ function Invoke-GetDependencies {
 
         if ($Debug) {
             $vcpkgOutput | ForEach-Object {
-                Log "  [VCPKG] $_" "Green"
+                Debug "  [VCPKG] $_"
             }
         }
 
@@ -259,13 +245,13 @@ function Invoke-GetDependencies {
 function Get-Generator {
     if ($Generator) { return $Generator }
 
-    Log "Auto-detecting CMake generator..." "Cyan"
+    Info "Auto-detecting CMake generator..."
 
     # Prioritize Ninja if available
     $ninjaPath = (Get-Command "ninja" -EA SilentlyContinue).Path
     if ($ninjaPath) {
         $ninjaVersion = (& $ninjaPath --version | Out-String).Trim()
-        Log "Detected 'ninja' (v$ninjaVersion) at $ninjaPath. Using 'Ninja' generator." "Green"
+        Info "Detected 'ninja' (v$ninjaVersion) at $ninjaPath. Using 'Ninja' generator."
         return "Ninja"
     }
     
@@ -274,7 +260,7 @@ function Get-Generator {
     if (Test-Path $vsWhere) {
         $vs2022Path = & $vsWhere -latest -products Microsoft.VisualStudio.Product.Community -version "[17.0,18.0)" -property installationPath -EA SilentlyContinue
         if ($vs2022Path) {
-            Log "Detected Visual Studio 2022. Using 'Visual Studio 17 2022' generator." "Green"
+            Info "Detected Visual Studio 2022. Using 'Visual Studio 17 2022' generator."
             return "Visual Studio 17 2022"
         }
     }
@@ -284,62 +270,79 @@ function Get-Generator {
     return ""
 }
 
-# The optimized core function to handle both CMake generation and building
-function Invoke-CMake {
+# Helper function to handle CMake invocation.
+function Run-CMake {
     param(
-        [switch]$GenerateOnly = $false,
-        [switch]$BuildOnly = $false
+        [string]$command,
+        [string[]]$arguments
     )
+
+    Info "Running 'cmake $command'..."
+    if ($Debug) {
+        Debug "  Args: $($arguments -join ' ')"
+    }
+
+    $output = & cmake $arguments 2>&1
+
+    if ($LASTEXITCODE -ne 0) {
+        Error "CMake '$command' failed with exit code $LASTEXITCODE."
+        $output | ForEach-Object { Error "  [CMAKE] $_" }
+        return $false
+    }
     
+    if ($Debug) {
+        $output | ForEach-Object { Debug "  [CMAKE] $_" }
+    }
+    
+    Info "CMake '$command' command completed successfully."
+    return $true
+}
+
+function Run-Generate {
+    Info "Generating project files..."
+
     # Create build directory if it doesn't exist
     if (-not (Test-Path $BuildDir)) {
         New-Item -ItemType Directory -Path $BuildDir | Out-Null
-        Log "Created build directory: .$BuildDir"
+        Info "Created build directory: ./$BuildDir"
+    }
+    
+    # Do not re-run generation if cache exists
+    if (Test-Path (Join-Path $BuildDir "CMakeCache.txt")) {
+        Info "CMake cache found, skipping generation."
+        return $true
     }
 
     $gen = Get-Generator
     
     $cmakeGenerateArgs = @("..")
     if ($gen) { $cmakeGenerateArgs += @("-G", $gen) }
-    $cmakeGenerateArgs += "-DCMAKE_TOOLCHAIN_FILE=$($VcpkgToolchainFile)"
+    
+    # Add the toolchain file dependency 
+    if (-not ("$script:VcpkgToolchainFile")) {
+        Error "Vcpkg toolchain file not found. Ensure vcpkg is installed and configured."
+        return $false
+    }
+    $cmakeGenerateArgs += "-DCMAKE_TOOLCHAIN_FILE=$($script:VcpkgToolchainFile)"
+
+    # Add CL compiler paths to CMake arguments
+    if (-not ("$script:clPath")) {
+        Error "cl.exe not found after setting environment. Ensure Visual Studio with C++ tools is installed and configured."
+        return $false
+    }
+    $cmakeGenerateArgs += "-DCMAKE_C_COMPILER=$script:clPath"
+    $cmakeGenerateArgs += "-DCMAKE_CXX_COMPILER=$script:clPath"
 
     if ($Debug) {
         $cmakeGenerateArgs += @("--trace-expand", "--debug-output", "--warn-uninitialized")
     }
 
-    $cmakeBuildArgs = @("--build", ".", "--config", $Config)
-
     Push-Location $BuildDir
     try {
-        # --- CMake Generation Step ---
-        if (-not $BuildOnly) {
-            if (-not (Test-Path "CMakeCache.txt")) {
-                Log "Running CMake generation..." "Cyan"
-                $buildOutput = & cmake $cmakeGenerateArgs 2>&1
-                if ($LASTEXITCODE -ne 0) {
-                    Error "CMake generation failed."
-                    $buildOutput | ForEach-Object { Error "  [BUILD] $_" }
-                    return $false
-                }
-                Success "Project files generated"
-            } else {
-                Log "CMake cache found, skipping generation." "Green"
-            }
+        if (-not (Run-CMake -command "generate" -arguments $cmakeGenerateArgs)) {
+            return $false
         }
-        
-        # --- CMake Build Step ---
-        if (-not $GenerateOnly) {
-            Log "Running CMake build..." "Cyan"
-            $buildOutput = & cmake $cmakeBuildArgs 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                Error "Build failed."
-                $buildOutput | ForEach-Object { Error "  [BUILD] $_" }
-                return $false
-            }
-            Success "Build completed"
-            $exePath = Get-ChildItem -Path ".\bin", ".\$Config" -Filter "$ProjectName.exe" -Recurse -File | Select-Object -ExpandProperty FullName -First 1
-            if ($exePath) { Log "Executable: $exePath" "Green" }
-        }
+        Success "Project files generated."
         return $true
     }
     finally {
@@ -347,19 +350,34 @@ function Invoke-CMake {
     }
 }
 
-function Invoke-Generate {
-    Log "Generating project files..." "Cyan"
-    return Invoke-CMake -GenerateOnly
+# Refactored `Invoke-Build`
+function Run-Build {
+    Info "Building project ($Config)..."
+
+    if (-not (Test-Path $BuildDir)) {
+        Error "Build directory '.\$BuildDir' does not exist. Please run '.\housekeeper.ps1 -Generate' first."
+        return $false
+    }
+    
+    $cmakeBuildArgs = @("--build", ".", "--config", $Config)
+
+    Push-Location $BuildDir
+    try {
+        if (-not (Run-CMake -command "build" -arguments $cmakeBuildArgs)) {
+            return $false
+        }
+        Success "Build completed."
+        $exePath = Get-ChildItem -Path ".\bin", ".\$Config" -Filter "$ProjectName.exe" -Recurse -File | Select-Object -ExpandProperty FullName -First 1
+        if ($exePath) { Info "Executable: $exePath" }
+        return $true
+    }
+    finally {
+        Pop-Location
+    }
 }
 
-function Invoke-Build {
-    Log "Building project ($Config)..." "Cyan"
-    return Invoke-CMake -BuildOnly
-}
-
-function Invoke-Format {
-    Log "Formatting source code..." "Cyan"
-    if (-not (Test-ClangFormat)) { return $false }
+function Run-Format {
+    Info "Formatting source code..."
 
     $files = Get-SourceFiles
     if (-not $files) { Warn "No source files found to format."; return $true }
@@ -392,9 +410,8 @@ function Invoke-Format {
     }
 }
 
-function Invoke-CheckFormat {
-    Log "Checking source code formatting..." "Cyan"
-    if (-not (Test-ClangFormat)) { return $false }
+function Check-Format {
+    Info "Checking source code formatting..."
 
     $files = Get-SourceFiles
     if (-not $files) { Warn "No source files found to check formatting for."; return $true }
@@ -442,6 +459,15 @@ function Get-Action {
     $activeFlags = $actions | Where-Object { $_ -eq $true }
     $activeCount = $activeFlags.Count
 
+    if ($Help) {
+        return "help"
+    }
+
+    # If no arguments were provided, show help by default
+    if ($activeCount -eq 0) {
+        Show-Help; exit 1
+    }
+
     if ($activeCount -gt 1) {
         Error "Multiple actions specified. Please choose only one."
         Show-Help; exit 1
@@ -453,33 +479,61 @@ function Get-Action {
     return "rebuild"  # Default action if no specific action is provided
 }
 
+function Test-Prerequisites {
+    if (-not (Test-Path "CMakeLists.txt")) { Error "CMakeLists.txt not found in current directory."; return $false }
+    if (-not (Test-Path "src")) { Error "src/ directory not found."; return $false }
+    return $true
+}
+
 # ---
 # Main Execution
 # ---
-Log "housekeeper - Win32 Project Build Script" "Cyan"
-
 $action = Get-Action
-Log "Action: $action | Config: $Config"
+Info "Action: $action | Config: $Config"
 
 # Check prerequisites for all actions except 'help'
 if ($action -ne "help" -and -not (Test-Prerequisites)) { exit 1 }
 
 # Set up the Visual Studio environment once
-if ($action -ne "help") {
-    if (-not (Invoke-VsVars -vcvarsPath $vcvarsPath -arch "x64")) {
+$nonVsActions = @("help", "format", "check-format", "clean")
+if ($action -notin $nonVsActions) {
+    if (-not (Read-VsVars -vcvarsPath $vcvarsPath -arch "x64")) {
         exit 1
     }
 }
 
 $success = $false
 switch ($action) {
-    "clean" { $success = Invoke-Clean }
-    "format" { $success = Invoke-Format }
-    "check-format" { $success = Invoke-CheckFormat }
-    "build" { $success = (Invoke-Generate) -and (Invoke-Build) }
-    "rebuild" { $success = (Invoke-Clean) -and (Invoke-Generate) -and (Invoke-Build) }
-    "generate" { $success = Invoke-Generate }
-    "deps" { $success = Invoke-GetDependencies }
-    "all" { $success = (Invoke-Format) -and (Invoke-Generate) -and (Invoke-Build) }
+    "help" { Show-Help; exit 0 }
+    "clean" { $success = Run-Clean }
+    "format" { $success = Run-Format }
+    "check-format" { $success = Check-Format }
+    "build" {
+        $success = (Run-Generate)
+        if ($success) {
+            $success = (Run-Build)
+        }
+    }
+    "rebuild" { 
+        $success = (Run-Clean)
+        if ($success) {
+            $success = (Run-Generate)
+        }
+        if ($success) {
+            $success = (Run-Build)
+        }
+    }
+    "generate" { $success = Run-Generate
+    }
+    "deps" { $success = Get-Dependencies }
+    "all" { 
+        $success = (Run-Format)
+        if ($success) {
+            $success = (Run-Generate)
+        }
+        if ($success) {
+            $success = (Run-Build)
+        }
+    }
     default { Error "Unknown action: $action"; Show-Help; exit 1 }
 }
