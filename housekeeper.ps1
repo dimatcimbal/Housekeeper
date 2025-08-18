@@ -26,7 +26,7 @@ param(
     [switch]$CheckFormat,
     [switch]$All,
     [switch]$Deps,
-    [switch]$Debug,
+    [switch]$Verbose,
     [ValidateSet("Debug", "Release")][string]$Config = "Release"
 )
 
@@ -153,7 +153,7 @@ function Get-Dependencies {
     Info "Running 'vcpkg install' from vcpkg.json..."
     try {
         $vcpkgArgs = @("install", "--recurse", "--triplet", "x64-windows")
-        if ($Debug) { $vcpkgArgs += "--debug" }
+        if ($Verbose) { $vcpkgArgs += "--debug" }
         $vcpkgOutput = & $VcpkgExe $vcpkgArgs 2>&1
 
         if ($LASTEXITCODE -ne 0) {
@@ -161,7 +161,7 @@ function Get-Dependencies {
             $vcpkgOutput | ForEach-Object { Error "  [VCPKG] $_" }
             return $false
         }
-        if ($Debug) { $vcpkgOutput | ForEach-Object { Debug "  [VCPKG] $_" } }
+        if ($Verbose) { $vcpkgOutput | ForEach-Object { Debug "  [VCPKG] $_" } }
         Success "Vcpkg dependencies installed successfully."
         return $true
     }
@@ -198,7 +198,7 @@ function Invoke-CMake {
     )
 
     Info "Running 'cmake $command'..."
-    if ($Debug) { Debug "  Args: $($arguments -join ' ')" }
+    if ($Verbose) { Debug "  Args: $($arguments -join ' ')" }
 
     $output = & cmake $arguments 2>&1
     if ($LASTEXITCODE -ne 0) {
@@ -207,7 +207,7 @@ function Invoke-CMake {
         return $false
     }
     
-    if ($Debug) { $output | ForEach-Object { Debug "  [CMAKE] $_" } }
+    if ($Verbose) { $output | ForEach-Object { Debug "  [CMAKE] $_" } }
     Info "CMake '$command' command completed successfully."
     return $true
 }
@@ -246,7 +246,7 @@ function Run-Generate {
     $cmakeGenerateArgs += "-DCMAKE_C_COMPILER=$script:clPath"
     $cmakeGenerateArgs += "-DCMAKE_CXX_COMPILER=$script:clPath"
 
-    if ($Debug) { $cmakeGenerateArgs += @("--trace-expand", "--debug-output", "--warn-uninitialized") }
+    if ($Verbose) { $cmakeGenerateArgs += @("--trace-expand", "--debug-output", "--warn-uninitialized") }
 
     Push-Location $BUILD_DIR
     try {
