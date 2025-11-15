@@ -36,7 +36,7 @@ param(
 $GEN_VS2022 = "Visual Studio 17 2022"
 $GEN_NINJA = "Ninja"
 $BUILD_DIR = "build"
-$PROJECT_NAME = "DXMiniApp"
+$PROJECT_NAME = (Split-Path -Leaf (Get-Location))
 $SOURCE_EXTENSIONS = @("*.cpp", "*.c", "*.h", "*.hpp", "*.cc", "*.cxx", "*.hxx")
 
 # ---
@@ -169,13 +169,21 @@ function Get-Dependencies {
 }
 
 function Get-Generator {
+    param([string]$VsPath)
+    
     Info "Auto-detecting CMake generator..."
     
-    $vsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-    if (Test-Path $vsWhere) {
-        $vs2022Path = & $vsWhere -latest -products Microsoft.VisualStudio.Product.Community -version "[17.0,18.0)" -property installationPath -EA SilentlyContinue
-        if ($vs2022Path) {
-            Info "Detected Visual Studio 2022. Using '$GEN_VS2022' generator."
+    if ($VsPath) {
+        # Check if it's a valid VS 2022+ installation
+        # Path format: "C:\Program Files\Microsoft Visual Studio\18\Community"
+        if ($VsPath -match "Microsoft Visual Studio\\(\d+)") {
+            $vsVersion = [int]$matches[1]
+            if ($vsVersion -ge 17) {
+                Info "Detected Visual Studio. Using '$GEN_VS2022' generator."
+                return $GEN_VS2022
+            }
+        } else {
+            Info "Detected Visual Studio. Using '$GEN_VS2022' generator."
             return $GEN_VS2022
         }
     }
@@ -187,7 +195,7 @@ function Get-Generator {
         return $GEN_NINJA
     }
     
-    Warn "No preferred generator (VS 2022, Ninja) auto-detected. CMake will choose default."
+    Warn "No preferred generator (VS 2022+, Ninja) auto-detected. CMake will choose default."
     return ""
 }
 
@@ -235,7 +243,7 @@ function Run-Generate {
     
     if (Test-Path (Join-Path $BUILD_DIR "CMakeCache.txt")) { Info "CMake cache found, skipping generation."; return $true }
 
-    $gen = Get-Generator
+    $gen = Get-Generator -VsPath $script:vsPath
     $cmakeGenerateArgs = @("..")
     if ($gen) { $cmakeGenerateArgs += @("-G", $gen) }
     
@@ -315,7 +323,6 @@ function Check-Format {
 
 # Global Configuration
 $ClangFormatPath = (Get-Command clang-format -EA SilentlyContinue).Path
-if (-not $ClangFormatPath) { Error "clang-format not found."; exit 1 }
 $vcpkgRoot = $env:VCPKG_ROOT
 $VcpkgToolchainFile = Join-Path "$vcpkgRoot" "scripts\buildsystems\vcpkg.cmake"
 $VcpkgManifestFile = Join-Path -Path "$PWD" -ChildPath "vcpkg.json"
@@ -335,6 +342,13 @@ $action = Get-Action
 Info "Action: $action | Config: $Config"
 
 if ($action -ne "help" -and -not (Test-Prerequisites)) { exit 1 }
+
+# Check for clang-format only when needed
+$formatActions = @("format", "check-format")
+if ($action -in $formatActions) {
+    if (-not $ClangFormatPath) { Error "clang-format not found. Required for format actions."; exit 1 }
+}
+
 $nonVsActions = @("help", "format", "check-format", "clean")
 if ($action -notin $nonVsActions) {
     if (-not (Read-VsVars -vcvarsPath $vcvarsPath -arch "x64")) { exit 1 }
